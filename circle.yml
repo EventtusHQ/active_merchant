@@ -14,7 +14,8 @@ dependencies:
     - bundle check --path=vendor/bundle_40 --gemfile Gemfile.rails40 || bundle install --jobs=4 --retry=3 --gemfile Gemfile.rails40 --path=vendor/bundle_40
     - bundle check --path=vendor/bundle_41 --gemfile Gemfile.rails41 || bundle install --jobs=4 --retry=3 --gemfile Gemfile.rails41 --path=vendor/bundle_41
     - bundle check --path=vendor/bundle_42 --gemfile Gemfile.rails42 || bundle install --jobs=4 --retry=3 --gemfile Gemfile.rails42 --path=vendor/bundle_42
-    - bundle check --path=vendor/bundle_5 --gemfile Gemfile.rails5 || bundle install --jobs=4 --retry=3 --gemfile Gemfile.rails5 --path=vendor/bundle_5
+    - bundle check --path=vendor/bundle_50 --gemfile Gemfile.rails5 || bundle install --jobs=4 --retry=3 --gemfile Gemfile.rails50 --path=vendor/bundle_50
+    - bundle check --path=vendor/bundle_6 --gemfile Gemfile.rails60 || bundle install --jobs=4 --retry=3 --gemfile Gemfile.rails60 --path=vendor/bundle_60
 
 test:
   override:
@@ -34,6 +35,10 @@ test:
         environment:
           BUNDLE_GEMFILE: Gemfile.rails42
 
-    - bundle check --path=vendor/bundle_5 && bundle exec rake test:
+    - bundle check --path=vendor/bundle_50 && bundle exec rake test:
         environment:
-          BUNDLE_GEMFILE: Gemfile.rails5
+          BUNDLE_GEMFILE: Gemfile.rails50
+    
+    - bundle check --path=vendor/bundle_60 && bundle exec rake test:
+        environment:
+          BUNDLE_GEMFILE: Gemfile.rails60
