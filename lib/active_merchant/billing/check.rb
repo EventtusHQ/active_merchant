@@ -7,11 +7,19 @@ module ActiveMerchant #:nodoc:
     # You may use Check in place of CreditCard with any gateway that supports it.
     class Check < Model
       attr_accessor :first_name, :last_name,
-                    :bank_name, :routing_number, :account_number,
-                    :account_holder_type, :account_type, :number
+        :bank_name, :routing_number, :account_number,
+        :account_holder_type, :account_type, :number
 
       # Used for Canadian bank accounts
       attr_accessor :institution_number, :transit_number
+
+      # Canadian Institution Numbers
+      # Found here: https://en.wikipedia.org/wiki/Routing_number_(Canada)
+      INSTITUTION_NUMBERS = %w(
+        001 002 003 004	006 010 016 030 039 117 127 177 219 245 260 269 270 308
+        309 310 315 320	338 340 509 540 608 614 623 809 815 819 828 829 837 839
+        865 879 889 899
+      )
 
       def name
         @name ||= "#{first_name} #{last_name}".strip
@@ -29,19 +37,15 @@ module ActiveMerchant #:nodoc:
       def validate
         errors = []
 
-        [:name, :routing_number, :account_number].each do |attr|
-          errors << [attr, "cannot be empty"] if empty?(self.send(attr))
+        %i[name routing_number account_number].each do |attr|
+          errors << [attr, 'cannot be empty'] if empty?(self.send(attr))
         end
 
-        errors << [:routing_number, "is invalid"] unless valid_routing_number?
+        errors << [:routing_number, 'is invalid'] unless valid_routing_number?
 
-        if(!empty?(account_holder_type) && !%w[business personal].include?(account_holder_type.to_s))
-          errors << [:account_holder_type, "must be personal or business"]
-        end
+        errors << [:account_holder_type, 'must be personal or business'] if !empty?(account_holder_type) && !%w[business personal].include?(account_holder_type.to_s)
 
-        if(!empty?(account_type) && !%w[checking savings].include?(account_type.to_s))
-          errors << [:account_type, "must be checking or savings"]
-        end
+        errors << [:account_type, 'must be checking or savings'] if !empty?(account_type) && !%w[checking savings].include?(account_type.to_s)
 
         errors_hash(errors)
       end
@@ -50,12 +54,16 @@ module ActiveMerchant #:nodoc:
         'check'
       end
 
+      def credit_card?
+        false
+      end
+
       # Routing numbers may be validated by calculating a checksum and dividing it by 10. The
       # formula is:
       #   (3(d1 + d4 + d7) + 7(d2 + d5 + d8) + 1(d3 + d6 + d9))mod 10 = 0
       # See http://en.wikipedia.org/wiki/Routing_transit_number#Internal_checksums
       def valid_routing_number?
-        digits = routing_number.to_s.split('').map(&:to_i).select{|d| (0..9).include?(d)}
+        digits = routing_number.to_s.split('').map(&:to_i).select { |d| (0..9).cover?(d) }
         case digits.size
         when 9
           checksum = ((3 * (digits[0] + digits[3] + digits[6])) +
@@ -67,6 +75,8 @@ module ActiveMerchant #:nodoc:
           else
             false
           end
+        when 8
+          true if INSTITUTION_NUMBERS.include?(routing_number[0..2].to_s)
         else
           false
         end

@@ -1,16 +1,15 @@
-require 'openssl'
-
 module ActiveMerchant #:nodoc:
   module Billing #:nodoc:
     class ClearhausGateway < Gateway
       self.test_url = 'https://gateway.test.clearhaus.com'
       self.live_url = 'https://gateway.clearhaus.com'
 
-      self.supported_countries = ['DK', 'NO', 'SE', 'FI', 'DE', 'CH', 'NL', 'AD', 'AT', 'BE', 'BG', 'HR', 'CY', 'CZ', 'FO', 'GL', 'EE', 'FR', 'GR',
-                                  'HU', 'IS', 'IE', 'IT', 'LV', 'LI', 'LT', 'LU', 'MT', 'PL', 'PT', 'RO', 'SK', 'SI', 'ES', 'GB']
+      self.supported_countries = %w[DK NO SE FI DE CH NL AD AT BE BG HR CY CZ FO GL EE FR GR
+                                    HU IS IE IT LV LI LT LU MT PL PT RO SK SI ES GB]
 
       self.default_currency    = 'EUR'
-      self.supported_cardtypes = [:visa, :master]
+      self.currencies_without_fractions = %w(BIF CLP DJF GNF JPY KMF KRW PYG RWF UGX VND VUV XAF XOF XPF)
+      self.supported_cardtypes = %i[visa master]
 
       self.homepage_url = 'https://www.clearhaus.com'
       self.display_name = 'Clearhaus'
@@ -37,71 +36,47 @@ module ActiveMerchant #:nodoc:
         50000 => 'Clearhaus error'
       }
 
-      # Create gateway
-      #
-      # options:
-      #       :api_key - merchant's Clearhaus API Key
-      #       :signing_key - merchant's private key for optionally signing request
-      def initialize(options={})
+      def initialize(options = {})
         requires!(options, :api_key)
-        options[:signing_key].strip! if options[:signing_key]
+        options[:private_key] = options[:private_key].strip if options[:private_key]
         super
       end
 
-      # Make a purchase (authorize and capture)
-      #
-      # amount         - The monetary amount of the transaction in cents.
-      # payment        - The CreditCard or the Clearhaus card token.
-      # options        - A standard ActiveMerchant options hash
-      def purchase(amount, payment, options={})
+      def purchase(amount, payment, options = {})
         MultiResponse.run(:use_first_response) do |r|
           r.process { authorize(amount, payment, options) }
           r.process { capture(amount, r.authorization, options) }
         end
       end
 
-      # Authorize a transaction.
-      #
-      # amount         - The monetary amount of the transaction in cents.
-      # payment        - The CreditCard or the Clearhaus card token.
-      # options        - A standard ActiveMerchant options hash  with optional pares
-      def authorize(amount, payment, options={})
+      def authorize(amount, payment, options = {})
         post = {}
         add_invoice(post, amount, options)
 
-        action = if payment.respond_to?(:number)
-           add_payment(post, payment)
-          "/authorizations"
-        elsif payment.kind_of?(String)
-          "/cards/#{payment}/authorizations"
-        else
-          raise ArgumentError.new("Unknown payment type #{payment.inspect}")
-        end
+        action =
+          if payment.respond_to?(:number)
+            add_payment(post, payment)
+            '/authorizations'
+          elsif payment.kind_of?(String)
+            "/cards/#{payment}/authorizations"
+          else
+            raise ArgumentError.new("Unknown payment type #{payment.inspect}")
+          end
 
         post[:recurring] = options[:recurring] if options[:recurring]
-        post[:threed_secure] = {pares: options[:pares]} if options[:pares]
+        post[:card][:pares] = options[:pares] if options[:pares]
 
         commit(action, post)
       end
 
-      # Capture a pre-authorized transaction.
-      #
-      # amount         - The monetary amount of the transaction in cents.
-      # authorization  - The Clearhaus authorization id string.
-      # options        - A standard ActiveMerchant options hash
-      def capture(amount, authorization, options={})
+      def capture(amount, authorization, options = {})
         post = {}
         add_invoice(post, amount, options)
 
         commit("/authorizations/#{authorization}/captures", post)
       end
 
-      # Refund a captured transaction (fully or partial).
-      #
-      # amount         - The monetary amount of the transaction in cents.
-      # authorization  - The Clearhaus authorization id string.
-      # options        - A standard ActiveMerchant options hash
-      def refund(amount, authorization, options={})
+      def refund(amount, authorization, options = {})
         post = {}
         add_amount(post, amount, options)
 
@@ -112,22 +87,18 @@ module ActiveMerchant #:nodoc:
         commit("/authorizations/#{authorization}/voids", options)
       end
 
-      def verify(credit_card, options={})
+      def verify(credit_card, options = {})
         MultiResponse.run(:use_first_response) do |r|
-          r.process { authorize(100, credit_card, options) }
+          r.process { authorize(0, credit_card, options) }
           r.process(:ignore_result) { void(r.authorization, options) }
         end
       end
 
-      # Tokenize credit card with Clearhaus.
-      #
-      # credit_card    - The CreditCard.
-      # options        - A standard ActiveMerchant options hash
-      def store(credit_card, options={})
+      def store(credit_card, options = {})
         post = {}
         add_payment(post, credit_card)
 
-        commit("/cards", post)
+        commit('/cards', post)
       end
 
       def supports_scrubbing?
@@ -138,7 +109,7 @@ module ActiveMerchant #:nodoc:
         transcript.
           gsub(%r((Authorization: Basic )[\w=]+), '\1[FILTERED]').
           gsub(%r((&?card(?:\[|%5B)csc(?:\]|%5D)=)[^&]*)i, '\1[FILTERED]').
-          gsub(%r((&?card(?:\[|%5B)number(?:\]|%5D)=)[^&]*)i, '\1[FILTERED]')
+          gsub(%r((&?card(?:\[|%5B)pan(?:\]|%5D)=)[^&]*)i, '\1[FILTERED]')
       end
 
       private
@@ -150,27 +121,25 @@ module ActiveMerchant #:nodoc:
       end
 
       def add_amount(post, amount, options)
-        post[:amount]   = amount(amount)
+        post[:amount]   = localized_amount(amount, options[:currency] || default_currency)
         post[:currency] = (options[:currency] || default_currency)
       end
 
       def add_payment(post, payment)
         card = {}
-        card[:number]       = payment.number
-        card[:expire_month] = '%02d'% payment.month
+        card[:pan]          = payment.number
+        card[:expire_month] = '%02d' % payment.month
         card[:expire_year]  = payment.year
 
-        if payment.verification_value?
-          card[:csc]  = payment.verification_value
-        end
+        card[:csc] = payment.verification_value if payment.verification_value?
 
         post[:card] = card if card.any?
       end
 
       def headers(api_key)
         {
-          "Authorization"  => "Basic " + Base64.strict_encode64("#{api_key}:"),
-          "User-Agent"     => "Clearhaus ActiveMerchantBindings/#{ActiveMerchant::VERSION}"
+          'Authorization' => 'Basic ' + Base64.strict_encode64("#{api_key}:"),
+          'User-Agent'    => "Clearhaus ActiveMerchantBindings/#{ActiveMerchant::VERSION}"
         }
       end
 
@@ -183,26 +152,28 @@ module ActiveMerchant #:nodoc:
         headers = headers(@options[:api_key])
         body = parameters.to_query
 
-        if signing_key = @options[:signing_key]
+        if @options[:signing_key] && @options[:private_key]
           begin
-            headers["Signature"] = generate_signature(@options[:api_key], signing_key, body)
+            headers['Signature'] = generate_signature(body)
           rescue OpenSSL::PKey::RSAError => e
             return Response.new(false, e.message)
           end
         end
 
-        response = begin
-          parse(ssl_post(url, body, headers))
-        rescue ResponseError => e
-          raise unless(e.response.code.to_s =~ /400/)
-          parse(e.response.body)
-        end
+        response =
+          begin
+            parse(ssl_post(url, body, headers))
+          rescue ResponseError => e
+            raise unless e.response.code.to_s =~ /400/
+
+            parse(e.response.body)
+          end
 
         Response.new(
           success_from(response),
           message_from(response),
           response,
-          authorization: authorization_from(response),
+          authorization: authorization_from(action, response),
           test: test?,
           error_code: error_code_from(response)
         )
@@ -222,21 +193,26 @@ module ActiveMerchant #:nodoc:
         end
       end
 
-      def authorization_from(response)
-        response['id']
+      def authorization_from(action, response)
+        id_of_auth_for_capture(action) || response['id']
       end
 
-      def generate_signature(api_key, signing_key, body)
-        key = OpenSSL::PKey::RSA.new(signing_key)
-        hex = key.sign(OpenSSL::Digest.new('sha256'), body).unpack('H*').first
+      def id_of_auth_for_capture(action)
+        match = action.match(/authorizations\/(.+)\/captures/)
+        return nil unless match
 
-        "#{api_key} RS256-hex #{hex}"
+        match.captures.first
+      end
+
+      def generate_signature(body)
+        key = OpenSSL::PKey::RSA.new(@options[:private_key])
+        hex = key.sign(OpenSSL::Digest.new('sha256'), body).unpack1('H*')
+
+        "#{@options[:signing_key]} RS256-hex #{hex}"
       end
 
       def error_code_from(response)
-        unless success_from(response)
-          response['status']['code']
-        end
+        response['status']['code'] unless success_from(response)
       end
     end
   end

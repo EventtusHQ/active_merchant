@@ -26,12 +26,11 @@ module ActiveMerchant #:nodoc:
         'TW' => 'zh_TW'
       }
 
-      CURRENCIES_WITHOUT_FRACTIONS = %w(HUF JPY TWD)
-
       self.test_redirect_url = 'https://www.sandbox.paypal.com/cgi-bin/webscr'
       self.supported_countries = ['US']
       self.homepage_url = 'https://www.paypal.com/cgi-bin/webscr?cmd=xpt/merchant/ExpressCheckoutIntro-outside'
       self.display_name = 'PayPal Express Checkout'
+      self.currencies_without_fractions = %w(HUF JPY TWD)
 
       def setup_authorization(money, options = {})
         requires!(options, :return_url, :cancel_return_url)
@@ -74,7 +73,7 @@ module ActiveMerchant #:nodoc:
       end
 
       def authorize_reference_transaction(money, options = {})
-        requires!(options, :reference_id, :payment_type, :invoice_id, :description, :ip)
+        requires!(options, :reference_id)
 
         commit 'DoReferenceTransaction', build_reference_transaction_request('Authorization', money, options)
       end
@@ -86,10 +85,6 @@ module ActiveMerchant #:nodoc:
       end
 
       private
-      def non_fractional_currency?(currency)
-        CURRENCIES_WITHOUT_FRACTIONS.include?(currency.to_s)
-      end
-
       def build_get_details_request(token)
         xml = Builder::XmlMarkup.new :indent => 2
         xml.tag! 'GetExpressCheckoutDetailsReq', 'xmlns' => PAYPAL_NAMESPACE do
@@ -151,7 +146,9 @@ module ActiveMerchant #:nodoc:
               xml.tag! 'n2:cpp-payflow-color', options[:background_color] unless options[:background_color].blank?
               if options[:allow_guest_checkout]
                 xml.tag! 'n2:SolutionType', 'Sole'
-                xml.tag! 'n2:LandingPage', options[:landing_page] || 'Billing'
+                unless options[:paypal_chooses_landing_page]
+                  xml.tag! 'n2:LandingPage', options[:landing_page] || 'Billing'
+                end
               end
               xml.tag! 'n2:BuyerEmail', options[:email] unless options[:email].blank?
 
@@ -253,6 +250,7 @@ module ActiveMerchant #:nodoc:
               xml.tag! 'n2:PaymentType', options[:payment_type] || 'Any'
               add_payment_details(xml, money, currency_code, options)
               xml.tag! 'n2:IPAddress', options[:ip]
+              xml.tag! 'n2:MerchantSessionId', options[:merchant_session_id] if options[:merchant_session_id].present?
             end
           end
         end
